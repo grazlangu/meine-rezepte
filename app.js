@@ -117,6 +117,8 @@ const P = {
   video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/>',
   timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/>',
   scan: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 9h10M7 12h10M7 15h6"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  flame: '<path d="M12 21c-3.9 0-7-2.8-7-6.6 0-3.3 2.2-5.3 3.6-7.4.4 1.6 1.3 2.7 2.4 3.2C11.3 6.7 13 4.2 15.5 3c-.4 2.9.9 4.6 2.2 6.3 1 1.3 1.3 2.6 1.3 5.1 0 3.8-3.1 6.6-7 6.6z"/>',
   sparkle: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/>',
 };
 function icon(name, size = 22, extra = "") {
@@ -300,7 +302,7 @@ function parseRecipeHtml(html, url) {
       if (r) break;
     } catch {}
   }
-  const out = { url, title: "", image: "", ingredients: [], steps: [], servings: null, time: null, categories: [], description: "" };
+  const out = { url, title: "", image: "", ingredients: [], steps: [], servings: null, time: null, categories: [], description: "", kcal: null };
   if (r) {
     out.title = decode(r.name || r.headline);
     out.image = imageUrl(r.image || r.thumbnailUrl, url);
@@ -310,6 +312,8 @@ function parseRecipeHtml(html, url) {
     out.time = isoMinutes(r.totalTime) || ((isoMinutes(r.prepTime) || 0) + (isoMinutes(r.cookTime) || 0)) || null;
     out.categories = [...[].concat(r.recipeCategory || []), ...String(r.keywords || "").split(",")].map(decode).filter(Boolean);
     out.description = decode(r.description).slice(0, 400);
+    const cal = r.nutrition && (r.nutrition.calories || r.nutrition.energy);
+    if (cal) { const m = String(cal).replace(",", ".").match(/[\d.]+/); if (m) out.kcal = Math.round(+m[0] * (/kj/i.test(String(cal)) ? 0.239 : 1)) || null; }
   }
   // Ergänzen aus Mikrodaten (z. B. Ichkoche), falls etwas fehlt
   const md = (prop) => $$(`[itemprop="${prop}"]`, doc).map((e) => decode(e.getAttribute("content") ?? e.textContent)).filter(Boolean);
@@ -415,7 +419,7 @@ const shop = {
    ===================================================================== */
 const TABS = [
   ["#/", "book", "Rezepte"],
-  ["#/daheim", "fridge", "Daheim"],
+  ["#/plan", "calendar", "Plan"],
   ["#/neu", "plus", "Neu"],
   ["#/einkauf", "cart", "Einkauf"],
   ["#/mehr", "more", "Mehr"],
@@ -469,6 +473,7 @@ async function route() {
   if (page === "bearbeiten") return renderForm(id);
   if (page === "einkauf") return renderShop();
   if (page === "mehr") return renderMore();
+  if (page === "plan") return renderPlan(rawId === "kalorien" ? "kcal" : "week");
   go("#/", true);
 }
 
@@ -622,6 +627,7 @@ async function renderDetail(id) {
       <div class="r-title">
         ${(r.categories || []).length ? `<div class="chips">${[...r.categories].sort(catOrder).map((c) => `<span class="pill">${esc(catLabel(c))}</span>`).join("")}</div>` : ""}
         <h1>${esc(r.title)}</h1>
+        ${r.kcal ? `<div class="chips"><span class="pill tomato">${icon("flame", 13)} ${r.kcal} kcal pro Portion</span></div>` : ""}
         ${r.description ? `<p class="desc">${esc(r.description)}</p>` : ""}
       </div>
       <div class="facts" id="facts"></div>
@@ -650,6 +656,8 @@ async function renderDetail(id) {
 
       <div class="actions">
         ${r.url ? `<a class="btn ghost" href="${esc(r.url)}" target="_blank" rel="noopener">${icon("ext", 18)} Original</a>` : ""}
+        <button class="btn ghost" id="toPlan">${icon("calendar", 18)} In den Plan</button>
+        <button class="btn ghost" id="ate">${icon("flame", 18)} Gegessen</button>
         <a class="btn ghost" href="#/bearbeiten/${encodeURIComponent(r.id)}">${icon("edit", 18)} Bearbeiten</a>
         <button class="btn ghost danger" id="del" ${r.url ? 'style="grid-column:1/-1"' : ""}>${icon("trash", 18)} Löschen</button>
       </div>
@@ -708,6 +716,12 @@ async function renderDetail(id) {
     const text = [r.title, "", "Zutaten" + (base ? ` (${plural(servings, "Portion", "Portionen")})` : "") + ":", ...(r.ingredients || []).map((l) => "• " + scaleLine(l, f)), "", "Zubereitung:",
       ...(r.steps || []).filter((s) => !s.startsWith("## ")).map((s, i) => `${i + 1}. ${s}`), r.url ? "\n" + r.url : ""].join("\n");
     navigator.share({ title: r.title, text }).catch(() => {});
+  });
+  $("#toPlan").addEventListener("click", () => pickDay(r, base));
+  $("#ate").addEventListener("click", () => {
+    if (!r.kcal) { toast("Bei diesem Rezept fehlen die kcal – unter „Bearbeiten“ eintragen."); return; }
+    kcal.add(todayKey(), { label: r.title, kcal: r.kcal });
+    toast(`${r.kcal} kcal für heute eingetragen ✓`, "ok");
   });
   $("#del").addEventListener("click", async () => {
     if (!confirm(`„${r.title}“ wirklich löschen? Das kann man nicht rückgängig machen.`)) return;
@@ -906,6 +920,7 @@ async function renderForm(id, prefill = null) {
           <label>Portionen<input type="number" id="srv" min="1" inputmode="numeric" value="${r.servings ?? ""}" placeholder="4"></label>
           <label>Zeit (Min.)<input type="number" id="time" min="0" inputmode="numeric" value="${r.time ?? ""}" placeholder="30"></label>
           <label>Kosten (€)<input type="text" id="cost" inputmode="decimal" placeholder="8,50" value="${r.cost != null ? String(r.cost).replace(".", ",") : ""}"></label>
+          <label>kcal / Portion<input type="number" id="kcal" min="0" inputmode="numeric" placeholder="450" value="${r.kcal ?? ""}"></label>
         </div>
         <div class="stack" style="gap:8px">
           <span style="font-size:12.5px;font-weight:500;color:var(--ink-2)">Kategorien <span class="hint">– antippen zum Auswählen</span></span>
@@ -975,7 +990,7 @@ async function renderForm(id, prefill = null) {
 
   const fillFrom = (d) => {
     const set = (sel, val) => { if (val != null && val !== "" && !$(sel).value.trim()) $(sel).value = val; };
-    set("#t", d.title); set("#srv", d.servings); set("#time", d.time);
+    set("#t", d.title); set("#srv", d.servings); set("#time", d.time); set("#kcal", d.kcal);
     set("#ing", d.ingredients.join("\n")); set("#steps", d.steps.join("\n"));
     if (d.description) r.description = d.description;
     const wanted = d.categories.map((c) => c.toLowerCase());
@@ -1060,6 +1075,7 @@ async function renderForm(id, prefill = null) {
       servings: parseInt($("#srv").value, 10) || null,
       time: parseInt($("#time").value, 10) || null,
       cost: parseNum($("#cost").value),
+      kcal: parseInt($("#kcal").value, 10) || null,
       ingredients: lines($("#ing").value),
       steps: lines($("#steps").value),
       notes: $("#notes").value.trim(),
@@ -1182,6 +1198,279 @@ async function findRecipes(have) {
 }
 
 /* =====================================================================
+   Wochenplan & Kalorien
+   ===================================================================== */
+const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const todayKey = () => dayKey(new Date());
+const keyToDate = (k) => { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d); };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const mondayOf = (d) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+const WD = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
+const fmtDay = (d) => d.toLocaleDateString("de-AT", { day: "numeric", month: "numeric" });
+function weekNo(d) { const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const day = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - day); const y = new Date(Date.UTC(t.getUTCFullYear(), 0, 1)); return Math.ceil(((t - y) / 86400000 + 1) / 7); }
+
+const plan = {
+  all: () => local.get("plan", {}),
+  day: (k) => plan.all()[k] || [],
+  set(k, list) { const all = plan.all(); if (list.length) all[k] = list; else delete all[k]; local.set("plan", all); },
+  add(k, rid, servings) { plan.set(k, [...plan.day(k), { id: uid(), rid, servings: servings || null, eaten: false }]); },
+};
+const kcal = {
+  goal: () => local.get("kcalGoal", 2000),
+  log: (k) => (local.get("kcalLog", {})[k] || []),
+  add(k, item) { const all = local.get("kcalLog", {}); all[k] = [...(all[k] || []), { id: uid(), ...item }]; local.set("kcalLog", all); },
+  remove(k, id) { const all = local.get("kcalLog", {}); all[k] = (all[k] || []).filter((x) => x.id !== id); if (!all[k].length) delete all[k]; local.set("kcalLog", all); },
+};
+async function dayTotal(k, byId) {
+  const fromPlan = plan.day(k).filter((m) => m.eaten).reduce((sum, m) => sum + (byId[m.rid]?.kcal || 0), 0);
+  return fromPlan + kcal.log(k).reduce((sum, x) => sum + (+x.kcal || 0), 0);
+}
+
+function openSheet(html) {
+  const sh = document.createElement("div");
+  sh.className = "sheet-bg";
+  sh.innerHTML = `<div class="sheet">${html}</div>`;
+  sh.addEventListener("click", (e) => { if (e.target === sh || e.target.closest("[data-close]")) sh.remove(); });
+  document.body.appendChild(sh);
+  return sh;
+}
+function pickDay(r, base) {
+  const start = new Date();
+  const days = Array.from({ length: 10 }, (_, i) => addDays(start, i));
+  const sh = openSheet(`
+    <div class="card-head"><h2>${icon("calendar", 20)} An welchem Tag?</h2><button class="icon-btn" data-close aria-label="Schließen">${icon("x", 22)}</button></div>
+    <p class="small muted">${esc(r.title)}</p>
+    <div class="day-pick">${days.map((d, i) => `<button class="chip" data-k="${dayKey(d)}">${i === 0 ? "Heute" : i === 1 ? "Morgen" : WD[(d.getDay() + 6) % 7].slice(0, 2) + " " + fmtDay(d)}</button>`).join("")}</div>`);
+  sh.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-k]"); if (!b) return;
+    plan.add(b.dataset.k, r.id, base);
+    sh.remove();
+    toast(`Eingeplant für ${b.textContent} ✓`, "ok");
+  });
+}
+async function pickRecipe(title) {
+  const all = (await store.all()).sort(byTitle);
+  return new Promise((resolve) => {
+    const sh = openSheet(`
+      <div class="card-head"><h2>${esc(title)}</h2><button class="icon-btn" data-close aria-label="Schließen">${icon("x", 22)}</button></div>
+      <input type="search" id="pickQ" placeholder="Rezept suchen …" autocomplete="off">
+      <div class="pick-list" id="pickList"></div>`);
+    const draw = (q = "") => {
+      const list = all.filter((r) => r.title.toLowerCase().includes(q.toLowerCase()));
+      $("#pickList", sh).innerHTML = list.length ? list.map((r) => `<button class="pick" data-id="${esc(r.id)}"><span class="ph" ${r.image ? `style="background-image:${esc(cssUrl(r.image))}"` : ""}></span><span class="grow"><b>${esc(r.title)}</b><small class="muted">${[r.kcal ? r.kcal + " kcal" : "", fmtMinutes(r.time)].filter(Boolean).join(" · ")}</small></span></button>`).join("")
+        : `<p class="muted small" style="padding:10px 0">Keine Rezepte gefunden.</p>`;
+    };
+    draw();
+    $("#pickQ", sh).addEventListener("input", (e) => draw(e.target.value));
+    sh.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-id]");
+      if (b) { sh.remove(); resolve(all.find((r) => r.id === b.dataset.id)); }
+    });
+    new MutationObserver(() => { if (!document.body.contains(sh)) resolve(null); }).observe(document.body, { childList: true });
+  });
+}
+
+let planWeek = null;
+let kcalDay = null;
+async function renderPlan(mode = "week") {
+  setTop();
+  planWeek ||= mondayOf(new Date());
+  kcalDay ||= todayKey();
+  view.innerHTML = `
+    <div class="page">
+      <div class="hello"><div class="sub">${mode === "week" ? `Kalenderwoche ${weekNo(planWeek)}` : "Tagesübersicht"}</div><h1>${mode === "week" ? "Wochenplan" : "Kalorien"}</h1></div>
+      <div class="seg" style="align-self:start">
+        <button class="${mode === "week" ? "on" : ""}" data-go="#/plan">${icon("calendar", 16)} Woche</button>
+        <button class="${mode === "kcal" ? "on" : ""}" data-go="#/plan/kalorien">${icon("flame", 16)} Kalorien</button>
+      </div>
+      <div id="planBody" class="page"></div>
+    </div>`;
+  $$("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go, true)));
+  return mode === "week" ? drawWeek() : drawKcal();
+}
+
+async function drawWeek() {
+  const all = await store.all();
+  const byId = Object.fromEntries(all.map((r) => [r.id, r]));
+  const today = todayKey();
+  const days = Array.from({ length: 7 }, (_, i) => addDays(planWeek, i));
+  let weekTotal = 0;
+  const html = await Promise.all(days.map(async (d, i) => {
+    const k = dayKey(d);
+    const meals = plan.day(k).filter((m) => byId[m.rid]);
+    const total = await dayTotal(k, byId);
+    weekTotal += meals.length;
+    return `<section class="card day ${k === today ? "today" : ""}" data-k="${k}">
+      <div class="card-head">
+        <h2>${WD[i]} <span class="muted small" style="font-weight:400">${fmtDay(d)}</span></h2>
+        ${total ? `<span class="pill tomato">${icon("flame", 12)} ${total} kcal</span>` : ""}
+      </div>
+      ${meals.length ? `<div class="meals">${meals.map((m) => {
+        const r = byId[m.rid];
+        return `<div class="meal ${m.eaten ? "eaten" : ""}">
+          <a class="ph" href="#/rezept/${encodeURIComponent(r.id)}" ${r.image ? `style="background-image:${esc(cssUrl(r.image))}"` : ""}>${r.image ? "" : icon("pot", 20)}</a>
+          <a class="grow" href="#/rezept/${encodeURIComponent(r.id)}"><b>${esc(r.title)}</b><small class="muted">${[m.servings ? plural(m.servings, "Portion", "Portionen") : "", r.kcal ? r.kcal + " kcal/Portion" : ""].filter(Boolean).join(" · ")}</small></a>
+          <button class="icon-btn ${m.eaten ? "on-eat" : ""}" data-eat="${m.id}" aria-label="Gegessen">${icon("check", 18)}</button>
+          <button class="icon-btn subtle" data-rm="${m.id}" aria-label="Entfernen">${icon("x", 16)}</button>
+        </div>`;
+      }).join("")}</div>` : ""}
+      <button class="link-btn add-meal" data-add="${k}">${icon("plus", 16)} Rezept einplanen</button>
+    </section>`;
+  }));
+  $("#planBody").innerHTML = `
+    <div class="week-nav">
+      <button class="icon-btn" id="prevW" aria-label="Vorige Woche">${icon("back", 22)}</button>
+      <b>${fmtDay(days[0])} – ${fmtDay(days[6])}</b>
+      <button class="icon-btn" id="nextW" aria-label="Nächste Woche">${icon("next", 22)}</button>
+    </div>
+    ${all.length ? "" : `<div class="empty">${icon("book", 36)}<b>Noch keine Rezepte</b><span class="small">Speichere zuerst ein paar Rezepte – dann kannst du sie hier einplanen.</span></div>`}
+    ${html.join("")}
+    <div class="actions">
+      <button class="btn" id="weekShop" ${weekTotal ? "" : "disabled"} style="grid-column:1/-1">${icon("cart", 19)} Zutaten der Woche auf die Einkaufsliste</button>
+      <button class="btn ghost" id="fillW" ${all.length ? "" : "disabled"}>${icon("dice", 18)} Leere Tage füllen</button>
+      <button class="btn ghost danger" id="clearW" ${weekTotal ? "" : "disabled"}>${icon("trash", 18)} Woche leeren</button>
+    </div>`;
+
+  $("#prevW").onclick = () => { planWeek = addDays(planWeek, -7); renderPlan("week"); };
+  $("#nextW").onclick = () => { planWeek = addDays(planWeek, 7); renderPlan("week"); };
+  $("#planBody").onclick = async (e) => {
+    const add = e.target.closest("[data-add]");
+    if (add) {
+      const r = await pickRecipe("Rezept einplanen");
+      if (r) { plan.add(add.dataset.add, r.id, r.servings); drawWeek(); }
+      return;
+    }
+    const eat = e.target.closest("[data-eat]"), rm = e.target.closest("[data-rm]");
+    if (!eat && !rm) return;
+    const k = e.target.closest("[data-k]").dataset.k;
+    const list = plan.day(k);
+    if (rm) plan.set(k, list.filter((m) => m.id !== rm.dataset.rm));
+    if (eat) { const m = list.find((x) => x.id === eat.dataset.eat); m.eaten = !m.eaten; plan.set(k, list); if (m.eaten && !byId[m.rid]?.kcal) toast("Gegessen ✓ (bei diesem Rezept fehlen die kcal)"); }
+    drawWeek();
+  };
+  $("#weekShop").onclick = () => {
+    const items = shop.items();
+    let n = 0;
+    days.forEach((d) => plan.day(dayKey(d)).forEach((m) => {
+      const r = byId[m.rid]; if (!r) return;
+      const f = r.servings && m.servings ? m.servings / r.servings : 1;
+      (r.ingredients || []).forEach((line) => { if (!line.startsWith("## ")) { items.push({ id: uid(), text: scaleLine(line, f), done: false, rid: r.id + "@" + dayKey(d), from: `${WD[(d.getDay() + 6) % 7]}: ${r.title}` }); n++; } });
+    }));
+    shop.save(items);
+    toast(`${plural(n, "Zutat", "Zutaten")} auf der Einkaufsliste ✓`, "ok");
+  };
+  $("#fillW").onclick = () => {
+    const pool = all.filter((r) => !(r.categories || []).some((c) => ["Getränke", "Kekse", "Beilage"].includes(c)));
+    if (!pool.length) return;
+    let n = 0;
+    days.forEach((d) => {
+      const k = dayKey(d);
+      if (plan.day(k).length || k < todayKey()) return;
+      const r = pool[Math.floor(Math.random() * pool.length)];
+      plan.add(k, r.id, r.servings); n++;
+    });
+    toast(n ? `${plural(n, "Tag", "Tage")} gefüllt – nicht zufrieden? Einfach nochmal.` : "Keine leeren Tage mehr.", "ok");
+    drawWeek();
+  };
+  $("#clearW").onclick = () => {
+    if (!confirm("Alle Gerichte dieser Woche aus dem Plan nehmen?")) return;
+    days.forEach((d) => plan.set(dayKey(d), []));
+    drawWeek();
+  };
+}
+
+async function drawKcal() {
+  const all = await store.all();
+  const byId = Object.fromEntries(all.map((r) => [r.id, r]));
+  const k = kcalDay, d = keyToDate(k), goal = kcal.goal();
+  const total = await dayTotal(k, byId);
+  const pct = Math.min(100, Math.round((total / goal) * 100));
+  const over = total > goal;
+  const planned = plan.day(k).filter((m) => byId[m.rid]);
+  const log = kcal.log(k);
+  const week = mondayOf(d);
+  const bars = await Promise.all(Array.from({ length: 7 }, async (_, i) => { const dk = dayKey(addDays(week, i)); return { dk, v: await dayTotal(dk, byId) }; }));
+  const maxBar = Math.max(goal, ...bars.map((b) => b.v));
+  const label = k === todayKey() ? "Heute" : k === dayKey(addDays(new Date(), -1)) ? "Gestern" : `${WD[(d.getDay() + 6) % 7]}, ${fmtDay(d)}`;
+
+  $("#planBody").innerHTML = `
+    <div class="week-nav">
+      <button class="icon-btn" id="prevD" aria-label="Voriger Tag">${icon("back", 22)}</button>
+      <b>${label}</b>
+      <button class="icon-btn" id="nextD" aria-label="Nächster Tag">${icon("next", 22)}</button>
+    </div>
+    <section class="card kcal-top">
+      <div class="ring ${over ? "over" : ""}" style="--p:${pct}">
+        <div><b class="num">${total}</b><small>von ${goal} kcal</small></div>
+      </div>
+      <div class="stack" style="gap:6px">
+        <span class="${over ? "pill tomato" : "pill"}">${over ? `${total - goal} kcal über dem Ziel` : `noch ${goal - total} kcal`}</span>
+        <button class="link-btn" id="goal">${icon("edit", 16)} Tagesziel ändern</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>${icon("calendar", 20)} Aus dem Wochenplan</h2></div>
+      ${planned.length ? `<ul class="ing">${planned.map((m) => {
+        const r = byId[m.rid];
+        return `<li data-eat="${m.id}" class="${m.eaten ? "done" : ""}"><span class="box">${icon("check", 14)}</span><span class="t grow">${esc(r.title)}</span><span class="muted small">${r.kcal ? r.kcal + " kcal" : "kcal fehlen"}</span></li>`;
+      }).join("")}</ul><p class="small muted">Abhaken, was gegessen wurde (1 Portion).</p>`
+        : `<p class="muted small">Für diesen Tag ist nichts eingeplant.</p>`}
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>${icon("flame", 20)} Sonst gegessen</h2></div>
+      ${log.length ? `<div class="kcal-log">${log.map((x) => `<div><span class="grow">${esc(x.label)}</span><b class="num">${x.kcal} kcal</b><button class="icon-btn subtle" data-del="${x.id}" aria-label="Entfernen">${icon("x", 16)}</button></div>`).join("")}</div>` : ""}
+      <form class="kcal-add" id="kcalAdd">
+        <input type="text" id="kLabel" placeholder="z. B. Apfel, Kaffee" aria-label="Was">
+        <input type="number" id="kVal" placeholder="kcal" inputmode="numeric" min="0" aria-label="kcal">
+        <button class="btn" aria-label="Hinzufügen">${icon("plus", 20)}</button>
+      </form>
+      <div class="chips">${[["Apfel", 80], ["Banane", 105], ["Semmel", 150], ["Kaffee mit Milch", 40], ["Joghurt", 120], ["Glas Saft", 110]].map(([l, v]) => `<button class="chip add" data-quick="${l}|${v}">${icon("plus", 13)} ${l} · ${v}</button>`).join("")}</div>
+      <button class="btn ghost" id="fromRecipe">${icon("book", 18)} Aus meinen Rezepten</button>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Diese Woche</h2><span class="small muted">Linie = Ziel</span></div>
+      <div class="bars" style="--g:${((goal / maxBar) * 100).toFixed(1)}">
+        ${bars.map((b, i) => `<button class="bar ${b.dk === k ? "sel" : ""} ${b.v > goal ? "over" : ""}" data-day="${b.dk}"><i style="height:${(b.v / maxBar) * 100}%"></i><small>${WD[i].slice(0, 2)}</small></button>`).join("")}
+      </div>
+    </section>
+    <p class="small muted" style="text-align:center">Die Werte sind Richtwerte aus den Rezepten bzw. deinen Angaben.</p>`;
+
+  $("#prevD").onclick = () => { kcalDay = dayKey(addDays(d, -1)); drawKcal(); };
+  $("#nextD").onclick = () => { kcalDay = dayKey(addDays(d, 1)); drawKcal(); };
+  $("#goal").onclick = () => {
+    const v = parseInt(prompt("Tagesziel in kcal:", goal), 10);
+    if (v > 0 && v < 10000) { local.set("kcalGoal", v); drawKcal(); }
+  };
+  $("#kcalAdd").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = parseInt($("#kVal").value, 10);
+    if (!v) { toast("Bitte die kcal eintragen."); $("#kVal").focus(); return; }
+    kcal.add(k, { label: $("#kLabel").value.trim() || "Eintrag", kcal: v });
+    drawKcal();
+  });
+  $("#fromRecipe").onclick = async () => {
+    const r = await pickRecipe("Was hast du gegessen?");
+    if (!r) return;
+    if (!r.kcal) { toast("Bei diesem Rezept fehlen die kcal – unter „Bearbeiten“ eintragen."); return; }
+    kcal.add(k, { label: r.title, kcal: r.kcal });
+    drawKcal();
+  };
+  $("#planBody").onclick = (e) => {
+    const q = e.target.closest("[data-quick]");
+    if (q) { const [l, v] = q.dataset.quick.split("|"); kcal.add(k, { label: l, kcal: +v }); return drawKcal(); }
+    const del = e.target.closest("[data-del]");
+    if (del) { kcal.remove(k, del.dataset.del); return drawKcal(); }
+    const eat = e.target.closest("[data-eat]");
+    if (eat) { const list = plan.day(k); const m = list.find((x) => x.id === eat.dataset.eat); m.eaten = !m.eaten; plan.set(k, list); return drawKcal(); }
+    const bar = e.target.closest("[data-day]");
+    if (bar) { kcalDay = bar.dataset.day; drawKcal(); }
+  };
+}
+
+/* =====================================================================
    Einkaufsliste
    ===================================================================== */
 function renderShop() {
@@ -1250,6 +1539,11 @@ async function renderMore() {
   view.innerHTML = `
     <div class="page">
       <div class="hello"><div class="sub">Einstellungen</div><h1>Mehr</h1></div>
+      <a class="card daheim-teaser" href="#/daheim">
+        <span class="art">${icon("fridge", 26)}</span>
+        <span class="grow"><b>Was hab ich daheim?</b><br><span class="small muted">Zutaten eintippen – passende Rezepte finden</span></span>
+        ${icon("next", 20)}
+      </a>
       <div class="stats">
         <div><b>${all.length}</b><small>Rezepte</small></div>
         <div><b>${all.filter((r) => r.fav).length}</b><small>Favoriten</small></div>
@@ -1292,6 +1586,7 @@ async function renderMore() {
           <li><b>Foto statt tippen:</b> Bei „Text einfügen“ auf <b>„Text aus Foto lesen“</b> – klappt mit Instagram-Screenshots und Kochbuchseiten.</li>
           <li><b>Videos</b> (z. B. eine Bildschirmaufnahme vom Instagram-Reel) beim Bearbeiten anhängen – sie bleiben am Handy. Videos kommen nicht in die Sicherungsdatei.</li>
           <li>Beim Rezept die Portionen ändern – Mengen und Kosten rechnen sich mit.</li>
+          <li><b>Plan</b> (unten): Rezepte auf Wochentage legen, die Zutaten der ganzen Woche mit einem Tipp auf die Einkaufsliste. Unter „Kalorien“ abhaken, was gegessen wurde.</li>
           <li>Von Instagram: Link einfügen und den Beitragstext bei <b>„Text einfügen“</b> hineinkopieren. Das Rezept bleibt in der App, auch wenn der Beitrag gelöscht wird.</li>
         </ol>
       </section>
@@ -1307,7 +1602,7 @@ async function renderMore() {
     if (installEvent) { installEvent.prompt(); installEvent = null; } else $("#installHint").hidden = false;
   });
   $("#export").addEventListener("click", async () => {
-    const data = JSON.stringify({ app: "meine-rezepte", version: 1, exported: new Date().toISOString(), recipes: await store.all(), einkauf: shop.items() });
+    const data = JSON.stringify({ app: "meine-rezepte", version: 1, exported: new Date().toISOString(), recipes: await store.all(), einkauf: shop.items(), plan: local.get("plan", {}), kcalLog: local.get("kcalLog", {}), kcalGoal: local.get("kcalGoal", null) });
     const name = `rezepte-sicherung-${new Date().toISOString().slice(0, 10)}.json`;
     const blob = new Blob([data], { type: "application/json" });
     const file = new File([blob], name, { type: "application/json" });
@@ -1328,6 +1623,9 @@ async function renderMore() {
       if (!Array.isArray(recs)) throw new Error();
       let n = 0;
       for (const rec of recs) if (rec && rec.id && rec.title) { await store.put(rec); n++; }
+      if (data.plan && typeof data.plan === "object") local.set("plan", { ...data.plan, ...local.get("plan", {}) });
+      if (data.kcalLog && typeof data.kcalLog === "object") local.set("kcalLog", { ...data.kcalLog, ...local.get("kcalLog", {}) });
+      if (data.kcalGoal && !local.get("kcalGoal", null)) local.set("kcalGoal", data.kcalGoal);
       toast(`${plural(n, "Rezept", "Rezepte")} übernommen ✓`, "ok");
       renderMore();
     } catch { toast("Das ist keine gültige Sicherungsdatei.", "bad"); }

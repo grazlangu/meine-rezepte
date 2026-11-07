@@ -75,7 +75,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--pri); outline: n
 textarea { resize: vertical; line-height: 1.5; }
 input::placeholder, textarea::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
 .hint { font-weight: 400; color: var(--muted); }
-.field-grid { display: grid; gap: 10px; grid-template-columns: repeat(3, 1fr); }
+.field-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, 1fr); }
 
 /* ---------- Knöpfe ---------- */
 .btn { --b: var(--pri); --c: var(--pri-ink); --h: var(--pri-2);
@@ -123,7 +123,7 @@ input::placeholder, textarea::placeholder { color: color-mix(in srgb, var(--mute
 .top-title { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .top-actions { display: flex; gap: 2px; margin-inline-start: auto; }
 .view { max-width: 660px; margin: 0 auto; padding: 18px max(16px, env(safe-area-inset-right, 0px)) calc(var(--tab-h) + var(--badge-h) + 32px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
-.page { display: grid; gap: 18px; }
+.page { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
 
 .tabbar { position: fixed; z-index: 30; inset: auto 0 var(--badge-h) 0; height: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px));
   padding: 0 max(6px, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) max(6px, env(safe-area-inset-left, 0px));
@@ -315,3 +315,49 @@ ol.howto { margin: 0; padding-inline-start: 20px; display: grid; gap: 6px; color
 #timerBar .tm .icon-btn { width: 32px; height: 32px; color: var(--bg); }
 #timerBar .tm.done { background: var(--tomato); color: #fff; animation: pulse 1s infinite; }
 @keyframes pulse { 50% { transform: scale(1.04); } }
+
+/* ---------- Wochenplan ---------- */
+.week-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 4px; }
+.week-nav b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.day { gap: 10px; padding: 14px 16px; }
+.day.today { border-color: color-mix(in srgb, var(--pri) 45%, var(--line)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--pri) 30%, transparent), var(--shadow-sm); }
+.day.today h2::after { content: "Heute"; font: 600 11px/1 var(--font); color: var(--pri-ink); background: var(--pri); border-radius: 999px; padding: 4px 8px; }
+.meals { display: grid; gap: 8px; }
+.meal { display: flex; align-items: center; gap: 10px; }
+.meal .ph { width: 48px; height: 48px; border-radius: 12px; flex: none; background: var(--soft) center / cover no-repeat; display: grid; place-items: center; color: var(--line-2); }
+.meal a.grow { display: grid; text-decoration: none; color: inherit; min-width: 0; }
+.meal b { font-weight: 500; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meal small { font-size: 12px; }
+.meal.eaten b { color: var(--muted); }
+.meal .on-eat { background: var(--pri); color: var(--pri-ink); }
+.add-meal { justify-self: start; font-size: 14px; }
+.day-pick { display: flex; flex-wrap: wrap; gap: 8px; }
+.pick-list { display: grid; gap: 4px; max-height: 50vh; overflow-y: auto; }
+.pick { display: flex; align-items: center; gap: 12px; padding: 8px; border: 0; background: none; border-radius: 12px; text-align: start; cursor: pointer; font: inherit; color: inherit; }
+.pick:hover { background: var(--soft); }
+.pick .ph { width: 44px; height: 44px; border-radius: 10px; flex: none; background: var(--soft) center / cover no-repeat; }
+.pick span.grow { display: grid; min-width: 0; }
+.pick b { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick small { font-size: 12px; }
+
+/* ---------- Kalorien ---------- */
+.kcal-top { display: flex; align-items: center; gap: 20px; }
+.ring { --p: 0; width: 128px; height: 128px; flex: none; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(var(--pri) calc(var(--p) * 1%), var(--soft) 0); }
+.ring.over { background: conic-gradient(var(--tomato) 100%, var(--soft) 0); }
+.ring > div { width: 100px; height: 100px; border-radius: 50%; background: var(--surface); display: grid; place-content: center; text-align: center; }
+.ring b { font: 700 28px/1 var(--fun); color: var(--ink); }
+.ring small { color: var(--muted); font-size: 11.5px; }
+.kcal-log { display: grid; }
+.kcal-log > div { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.kcal-log > div:first-child { border-top: 0; }
+.kcal-log b { font-weight: 600; font-size: 14px; }
+.kcal-add { display: grid; grid-template-columns: 1fr 90px auto; gap: 8px; }
+.bars { position: relative; display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; height: 140px; align-items: end; padding-top: 6px; }
+.bars::before { content: ""; position: absolute; inset-inline: 0; bottom: calc(20px + var(--g) * 1.14px); border-top: 1.5px dashed var(--gold); }
+.bar { display: grid; grid-template-rows: 1fr auto; height: 100%; gap: 4px; border: 0; background: none; padding: 0; cursor: pointer; color: var(--muted); font: inherit; }
+.bar i { align-self: end; display: block; width: 100%; min-height: 3px; max-height: 100%; border-radius: 8px 8px 4px 4px; background: color-mix(in srgb, var(--pri) 55%, var(--soft)); transform-origin: bottom; }
+.bar span, .bar small { font-size: 11.5px; }
+.bar.sel i { background: var(--pri); }
+.bar.sel small { color: var(--pri); font-weight: 600; }
+.bar.over i { background: var(--tomato); }
+.actions .btn { white-space: normal; text-align: center; min-width: 0; }
