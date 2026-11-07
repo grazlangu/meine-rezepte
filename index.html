@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="de" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Meine Rezepte</title>
+  <meta name="description" content="Lieblingsrezepte aus dem Internet sammeln – gratis und ohne Anmeldung.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121b18" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Rezepte">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="fonts.css">
+  <link rel="stylesheet" href="style.css">
+  <script>try { document.documentElement.dataset.theme = localStorage.getItem("theme") || "auto"; } catch (e) {}</script>
+</head>
+<body>
+  <header class="topbar" id="topbar"></header>
+  <main class="view" id="view"></main>
+  <nav class="tabbar" id="tabbar"></nav>
+  <div id="toast" aria-live="polite"></div>
+  <noscript>Bitte JavaScript aktivieren.</noscript>
+  <script src="app.js"></script>
+</body>
+</html>
