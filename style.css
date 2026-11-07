@@ -300,3 +300,18 @@ ol.howto { margin: 0; padding-inline-start: 20px; display: grid; gap: 6px; color
   body.nl-badge::after { content: ""; position: fixed; z-index: 29; inset: auto 0 0 0; height: var(--badge-h); background: var(--surface); }
   body.nl-badge .tabbar { padding-bottom: 0; height: var(--tab-h); border-bottom: 1px solid var(--line); }
 }
+
+/* ---------- Video ---------- */
+.video-pick { display: flex; gap: 8px; align-items: center; }
+.video-card { padding: 0; overflow: hidden; }
+.video-card video { width: 100%; max-height: 70vh; background: #000; display: block; }
+
+/* ---------- Timer ---------- */
+.timer-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+#timerBar { position: fixed; z-index: 80; inset-inline: 0; top: calc(8px + env(safe-area-inset-top, 0px)); display: grid; gap: 6px; justify-items: center; padding: 0 12px; pointer-events: none; }
+#timerBar .tm { pointer-events: auto; display: flex; align-items: center; gap: 8px; background: var(--ink); color: var(--bg); border-radius: 999px; padding: 4px 4px 4px 14px; box-shadow: var(--shadow-lg); max-width: 100%; }
+#timerBar .tm b { font-size: 17px; font-weight: 600; }
+#timerBar .tm span { font-size: 12.5px; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+#timerBar .tm .icon-btn { width: 32px; height: 32px; color: var(--bg); }
+#timerBar .tm.done { background: var(--tomato); color: #fff; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { transform: scale(1.04); } }

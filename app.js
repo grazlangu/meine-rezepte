@@ -7,8 +7,12 @@
 let dbPromise;
 function db() {
   return (dbPromise ||= new Promise((resolve, reject) => {
-    const req = indexedDB.open("rezepte", 1);
-    req.onupgradeneeded = () => req.result.createObjectStore("recipes", { keyPath: "id" });
+    const req = indexedDB.open("rezepte", 2);
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains("recipes")) d.createObjectStore("recipes", { keyPath: "id" });
+      if (!d.objectStoreNames.contains("media")) d.createObjectStore("media", { keyPath: "id" });
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   }));
@@ -22,6 +26,21 @@ async function tx(mode, fn) {
     t.onerror = () => reject(t.error);
   });
 }
+/* Videos liegen getrennt, damit Liste und Sicherung schnell bleiben */
+async function mediaTx(mode, fn) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const t = d.transaction("media", mode);
+    const req = fn(t.objectStore("media"));
+    t.oncomplete = () => resolve(req?.result);
+    t.onerror = () => reject(t.error);
+  });
+}
+const media = {
+  get: (id) => mediaTx("readonly", (s) => s.get(id)),
+  put: (m) => mediaTx("readwrite", (s) => s.put(m)),
+  del: (id) => mediaTx("readwrite", (s) => s.delete(id)),
+};
 const store = {
   all: () => tx("readonly", (s) => s.getAll()),
   get: (id) => tx("readonly", (s) => s.get(id)),
@@ -87,6 +106,9 @@ const P = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   fridge: '<rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M5 10h14M8.5 6v1.5M8.5 13v3"/>',
   text: '<path d="M5 5h14M5 10h14M5 15h9M5 20h6"/>',
+  video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/>',
+  timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/>',
+  scan: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 9h10M7 12h10M7 15h6"/>',
   sparkle: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/>',
 };
 function icon(name, size = 22, extra = "") {
@@ -595,6 +617,7 @@ async function renderDetail(id) {
         ${r.description ? `<p class="desc">${esc(r.description)}</p>` : ""}
       </div>
       <div class="facts" id="facts"></div>
+      <div id="videoSlot"></div>
       ${(r.steps || []).length ? `<a class="btn big" href="#/kochen/${encodeURIComponent(r.id)}">${icon("play", 18)} Kochmodus starten</a>` : ""}
 
       ${(r.ingredients || []).length ? `<section class="card">
@@ -643,6 +666,11 @@ async function renderDetail(id) {
     }
   };
   draw();
+  media.get(r.id).then((m) => {
+    if (!m || !$("#videoSlot")) return;
+    const url = URL.createObjectURL(m.blob);
+    $("#videoSlot").innerHTML = `<section class="card video-card"><video controls playsinline preload="metadata" src="${url}"></video></section>`;
+  }).catch(() => {});
   const setServings = (n) => { servings = n; servingsMemory[id] = n; draw(); };
   $("#minus")?.addEventListener("click", () => servings > 1 && setServings(servings - 1));
   $("#plus")?.addEventListener("click", () => setServings(servings + 1));
@@ -676,6 +704,7 @@ async function renderDetail(id) {
   $("#del").addEventListener("click", async () => {
     if (!confirm(`„${r.title}“ wirklich löschen? Das kann man nicht rückgängig machen.`)) return;
     await store.del(r.id);
+    media.del(r.id).catch(() => {});
     toast("Rezept gelöscht");
     go("#/", true);
   });
@@ -718,6 +747,7 @@ async function renderCook(id) {
       <div class="cook-body">
         <div class="sub">Schritt ${i + 1} von ${steps.length}</div>
         <p>${esc(steps[i])}</p>
+        ${findTimers(steps[i]).length ? `<div class="timer-btns">${findTimers(steps[i]).map((t) => `<button class="btn gold" data-min="${t.min}" data-label="${esc(t.label)}">${icon("timer", 19)} Timer ${esc(t.label)}</button>`).join("")}</div>` : ""}
         ${hint.length ? `<div class="ing-hint">${hint.map((x) => `<span class="pill gold">${esc(x)}</span>`).join("")}</div>` : ""}
       </div>
       <div class="cook-nav">
@@ -727,6 +757,7 @@ async function renderCook(id) {
           : `<button class="btn gold" id="cd">${icon("check", 20)} Fertig – Mahlzeit!</button>`}
       </div>`;
     $("#cx", el).onclick = exit;
+    $$(".timer-btns button", el).forEach((b) => (b.onclick = () => startTimer(+b.dataset.min, `${r.title.slice(0, 30)} · Schritt ${i + 1}`)));
     $("#cp", el).onclick = () => { if (i > 0) { i--; draw(); } };
     if ($("#cn", el)) $("#cn", el).onclick = () => { i++; draw(); };
     if ($("#cd", el)) $("#cd", el).onclick = () => { toast("Guten Appetit! 🍽", "ok"); exit(); };
@@ -755,6 +786,68 @@ async function renderCook(id) {
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && $(".cook")) keepAwake(); });
 
+/* ---------- Küchen-Timer ---------- */
+function findTimers(text) {
+  const out = [];
+  const re = /(\d+(?:[.,]\d+)?)(?:\s*(?:-|–|bis)\s*(\d+(?:[.,]\d+)?))?\s*(Minuten|Minute|Min\.?|Stunden|Stunde|Std\.?|Sekunden|Sek\.?)(?![a-zäöü])/gi;
+  let m;
+  while ((m = re.exec(text))) {
+    const val = parseNum(m[2] || m[1]);
+    const unit = m[3].toLowerCase();
+    const min = unit.startsWith("st") ? val * 60 : unit.startsWith("se") ? val / 60 : val;
+    if (min > 0 && min <= 600 && !out.some((t) => t.min === min)) out.push({ min, label: m[0].replace(/\s+/g, " ") });
+  }
+  return out.slice(0, 3);
+}
+const timers = [];
+let timerTick = null;
+function startTimer(min, label) {
+  timers.push({ id: uid(), end: Date.now() + min * 60000, label, total: min });
+  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+  toast(`Timer läuft: ${fmtMinutes(Math.round(min)) || Math.round(min * 60) + " Sek."}`, "ok");
+  drawTimers();
+  timerTick ||= setInterval(drawTimers, 1000);
+}
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.35, 0.7, 1.05].forEach((t) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.3);
+      o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.32);
+    });
+  } catch {}
+}
+function drawTimers() {
+  let bar = $("#timerBar");
+  if (!timers.length) { bar?.remove(); clearInterval(timerTick); timerTick = null; return; }
+  if (!bar) { bar = document.createElement("div"); bar.id = "timerBar"; document.body.appendChild(bar); }
+  const now = Date.now();
+  bar.innerHTML = timers.map((t) => {
+    const left = Math.max(0, Math.round((t.end - now) / 1000));
+    const done = left === 0;
+    const mm = String(Math.floor(left / 60)).padStart(2, "0"), ss = String(left % 60).padStart(2, "0");
+    return `<div class="tm ${done ? "done" : ""}">${icon("timer", 18)}<b class="num">${done ? "Fertig!" : mm + ":" + ss}</b><span>${esc(t.label)}</span><button class="icon-btn" data-id="${t.id}" aria-label="Timer beenden">${icon("x", 16)}</button></div>`;
+  }).join("");
+  bar.onclick = (e) => {
+    const b = e.target.closest("[data-id]"); if (!b) return;
+    timers.splice(timers.findIndex((t) => t.id === b.dataset.id), 1);
+    drawTimers();
+  };
+  timers.forEach((t) => {
+    if (t.end <= now && !t.rang) {
+      t.rang = true;
+      beep();
+      navigator.vibrate?.([400, 200, 400, 200, 400]);
+      toast("⏰ Timer fertig: " + t.label, "ok", 8000);
+      try { if (Notification.permission === "granted") new Notification("Timer fertig", { body: t.label, icon: "icon-192.png" }); } catch {}
+    }
+  });
+}
+
 /* =====================================================================
    Rezept anlegen / bearbeiten
    ===================================================================== */
@@ -765,6 +858,7 @@ async function renderForm(id, prefill = null) {
   setTop({ title: existing ? "Rezept bearbeiten" : "Neues Rezept", back: true });
   const allCats = [...new Set([...DEFAULT_CATS, ...(await store.all()).flatMap((x) => x.categories || [])])].sort(catOrder);
   let image = r.image;
+  let videoFile = null, videoRemoved = false;
   const canPaste = !!navigator.clipboard?.readText;
 
   view.innerHTML = `
@@ -785,6 +879,7 @@ async function renderForm(id, prefill = null) {
         <summary><h2>${icon("text", 20)} Text einfügen <span class="pill gold">Instagram, TikTok …</span></h2></summary>
         <p class="small muted">Beitragstext kopieren und hier einfügen – die App sortiert ihn in Zutaten und Schritte. Als Foto einfach einen Screenshot nehmen.</p>
         <textarea id="rawText" rows="6" placeholder="Rezepttext hier einfügen …"></textarea>
+        <label class="btn ghost" id="ocrBtn">${icon("scan", 18)} <span id="ocrLbl">Text aus Foto lesen</span><input type="file" id="ocrFile" accept="image/*" hidden></label>
         <button type="button" class="btn ghost" id="parseText">${icon("sparkle", 18)} Text sortieren</button>
       </details>
 
@@ -794,6 +889,10 @@ async function renderForm(id, prefill = null) {
           <input type="file" id="file" accept="image/*" hidden>
           <button type="button" class="icon-btn rm" id="rmImg" aria-label="Foto entfernen">${icon("trash", 18)}</button>
         </label>
+        <div class="video-pick" id="vp">
+          <label class="btn ghost" style="flex:1">${icon("video", 19)} <span id="vpLbl">Video anhängen</span><input type="file" id="vfile" accept="video/*" hidden></label>
+          <button type="button" class="icon-btn" id="vrm" aria-label="Video entfernen" hidden>${icon("trash", 18)}</button>
+        </div>
         <label>Name des Rezepts<input type="text" id="t" value="${esc(r.title)}" placeholder="z. B. Omas Kaiserschmarrn"></label>
         <div class="field-grid">
           <label>Portionen<input type="number" id="srv" min="1" inputmode="numeric" value="${r.servings ?? ""}" placeholder="4"></label>
@@ -834,6 +933,15 @@ async function renderForm(id, prefill = null) {
     const f = e.target.files[0]; if (!f) return;
     try { image = await compressImage(f); drawImg(); } catch { toast("Dieses Foto konnte nicht gelesen werden.", "bad"); }
   });
+  if (existing) media.get(r.id).then((m) => { if (m) { $("#vpLbl").textContent = "Video tauschen"; $("#vrm").hidden = false; } }).catch(() => {});
+  $("#vfile").addEventListener("change", (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    if (f.size > 300 * 1024 * 1024) { toast("Das Video ist sehr groß (über 300 MB). Bitte ein kürzeres nehmen.", "bad", 5000); return; }
+    videoFile = f; videoRemoved = false;
+    $("#vpLbl").textContent = "Video: " + Math.round(f.size / 1024 / 1024) + " MB ✓";
+    $("#vrm").hidden = false;
+  });
+  $("#vrm").addEventListener("click", () => { videoFile = null; videoRemoved = true; $("#vpLbl").textContent = "Video anhängen"; $("#vrm").hidden = true; $("#vfile").value = ""; });
   $("#rmImg").addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); image = ""; drawImg(); });
   $("#cats").addEventListener("click", (e) => {
     const b = e.target.closest(".chip"); if (!b) return;
@@ -895,6 +1003,29 @@ async function renderForm(id, prefill = null) {
       btn.innerHTML = `${icon("download", 19)} Rezept holen`;
     }
   }
+  $("#ocrFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const lbl = $("#ocrLbl");
+    lbl.textContent = "Lese Text … (beim ersten Mal ca. 20 Sek.)";
+    try {
+      if (!window.Tesseract) await new Promise((ok, bad) => {
+        const sc = document.createElement("script");
+        sc.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+        sc.onload = ok; sc.onerror = bad; document.head.appendChild(sc);
+      });
+      const res = await Tesseract.recognize(f, "deu", { logger: (m) => { if (m.status === "recognizing text") lbl.textContent = `Lese Text … ${Math.round(m.progress * 100)} %`; } });
+      const text = (res.data.text || "").trim();
+      if (!text) { toast("Auf dem Foto wurde kein Text erkannt."); return; }
+      $("#rawText").value = ($("#rawText").value ? $("#rawText").value + "\n" : "") + text;
+      if (!image) { try { image = await compressImage(f); drawImg(); } catch {} }
+      $("#parseText").click();
+    } catch {
+      toast("Das Lesen hat nicht geklappt – braucht beim ersten Mal Internet.", "bad", 5000);
+    } finally {
+      lbl.textContent = "Text aus Foto lesen";
+      e.target.value = "";
+    }
+  });
   $("#parseText").addEventListener("click", () => {
     const raw = $("#rawText").value.trim();
     if (!raw) { toast("Bitte zuerst den Text einfügen."); $("#rawText").focus(); return; }
@@ -928,7 +1059,11 @@ async function renderForm(id, prefill = null) {
       created: r.created || Date.now(),
     };
     if (!rec.ingredients.length && !rec.steps.length && !rec.url && rec.title === "Ohne Namen") return toast("Bitte zuerst etwas eintragen.");
-    try { await store.put(rec); } catch { return toast("Speichern hat nicht geklappt – ist der Speicher voll?", "bad", 5000); }
+    try {
+      await store.put(rec);
+      if (videoFile) await media.put({ id: rec.id, blob: videoFile, type: videoFile.type, size: videoFile.size });
+      else if (videoRemoved) await media.del(rec.id);
+    } catch { return toast("Speichern hat nicht geklappt – ist der Speicher voll?", "bad", 5000); }
     toast("Gespeichert ✓", "ok");
     go("#/rezept/" + encodeURIComponent(rec.id), true);
   });
@@ -1145,7 +1280,9 @@ async function renderMore() {
         <div class="card-head"><h2>${icon("sparkle", 20)} Tipps</h2></div>
         <ol class="howto">
           <li>Auf Android: bei einer Rezeptseite auf <b>Teilen</b> tippen und <b>„Rezepte“</b> wählen – das Rezept wird direkt übernommen.</li>
-          <li>Im <b>Kochmodus</b> bleibt der Bildschirm an. Zum Weiterblättern einfach wischen.</li>
+          <li>Im <b>Kochmodus</b> bleibt der Bildschirm an. Zum Weiterblättern einfach wischen. Steht eine Zeit im Schritt, gibt es einen <b>Timer</b>-Knopf.</li>
+          <li><b>Foto statt tippen:</b> Bei „Text einfügen“ auf <b>„Text aus Foto lesen“</b> – klappt mit Instagram-Screenshots und Kochbuchseiten.</li>
+          <li><b>Videos</b> (z. B. eine Bildschirmaufnahme vom Instagram-Reel) beim Bearbeiten anhängen – sie bleiben am Handy. Videos kommen nicht in die Sicherungsdatei.</li>
           <li>Beim Rezept die Portionen ändern – Mengen und Kosten rechnen sich mit.</li>
           <li>Von Instagram: Link einfügen und den Beitragstext bei <b>„Text einfügen“</b> hineinkopieren. Das Rezept bleibt in der App, auch wenn der Beitrag gelöscht wird.</li>
         </ol>
