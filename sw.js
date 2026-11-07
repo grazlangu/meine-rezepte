@@ -1,5 +1,5 @@
 // Sorgt dafür, dass die App auch ohne Internet startet.
-const CACHE = "rezepte-v6";
+const CACHE = "rezepte-v7";
 const FILES = ["./", "index.html", "fonts.css", "style.css", "readex-pro-latin-23b22b.woff2", "readex-pro-latin-ext-7750d8.woff2", "baloo-2-latin-224589.woff2", "app.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
@@ -13,7 +13,7 @@ self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET" || url.origin !== location.origin || url.pathname.includes("/.netlify/")) return;
   // Erst aus dem Netz (damit Updates ankommen), sonst aus dem Zwischenspeicher.
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: "no-cache" })
       .then((res) => {
         if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(url.search ? url.pathname : e.request, copy)); }
         return res;

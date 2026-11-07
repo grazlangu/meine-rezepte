@@ -13,8 +13,16 @@ function db() {
       if (!d.objectStoreNames.contains("recipes")) d.createObjectStore("recipes", { keyPath: "id" });
       if (!d.objectStoreNames.contains("media")) d.createObjectStore("media", { keyPath: "id" });
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const d = req.result;
+      // Wenn eine neuere App-Version die Datenbank braucht: freigeben
+      d.onversionchange = () => { d.close(); location.reload(); };
+      resolve(d);
+    };
     req.onerror = () => reject(req.error);
+    req.onblocked = () => {
+      $("#view").innerHTML = `<div class="empty" style="margin-top:30px">${icon("phone", 40)}<h2>Kurz neu starten, bitte</h2><p>Die App ist noch in einem anderen Fenster offen. Bitte alle Fenster der App schließen und neu öffnen – deine Rezepte bleiben erhalten.</p></div>`;
+    };
   }));
 }
 async function tx(mode, fn) {
