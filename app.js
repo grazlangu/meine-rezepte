@@ -4,27 +4,27 @@
 /* =====================================================================
    Speicher (IndexedDB für Rezepte, localStorage für Kleinigkeiten)
    ===================================================================== */
-let dbPromise;
-function db() {
-  return (dbPromise ||= new Promise((resolve, reject) => {
-    const req = indexedDB.open("rezepte", 2);
+let dbPromise, mediaDbPromise;
+function openDb(name, storeName, onBlocked) {
+  return new Promise((resolve, reject) => {
+    // Ohne Versionsnummer öffnen: es muss nie etwas umgebaut werden
+    const req = indexedDB.open(name);
     req.onupgradeneeded = () => {
-      const d = req.result;
-      if (!d.objectStoreNames.contains("recipes")) d.createObjectStore("recipes", { keyPath: "id" });
-      if (!d.objectStoreNames.contains("media")) d.createObjectStore("media", { keyPath: "id" });
+      if (!req.result.objectStoreNames.contains(storeName)) req.result.createObjectStore(storeName, { keyPath: "id" });
     };
     req.onsuccess = () => {
       const d = req.result;
-      // Wenn eine neuere App-Version die Datenbank braucht: freigeben
       d.onversionchange = () => { d.close(); location.reload(); };
       resolve(d);
     };
     req.onerror = () => reject(req.error);
-    req.onblocked = () => {
-      $("#view").innerHTML = `<div class="empty" style="margin-top:30px">${icon("phone", 40)}<h2>Kurz neu starten, bitte</h2><p>Die App ist noch in einem anderen Fenster offen. Bitte alle Fenster der App schließen und neu öffnen – deine Rezepte bleiben erhalten.</p></div>`;
-    };
-  }));
+    req.onblocked = onBlocked || null;
+  });
 }
+const db = () => (dbPromise ||= openDb("rezepte", "recipes", () => {
+  $("#view").innerHTML = `<div class="empty" style="margin-top:30px">${icon("phone", 40)}<h2>Kurz neu starten, bitte</h2><p>Die App ist noch in einem anderen Fenster offen. Bitte alle Fenster der App schließen und neu öffnen – deine Rezepte bleiben erhalten.</p></div>`;
+}));
+const mediaDb = () => (mediaDbPromise ||= openDb("rezepte-videos", "media"));
 async function tx(mode, fn) {
   const d = await db();
   return new Promise((resolve, reject) => {
@@ -34,9 +34,9 @@ async function tx(mode, fn) {
     t.onerror = () => reject(t.error);
   });
 }
-/* Videos liegen getrennt, damit Liste und Sicherung schnell bleiben */
+/* Videos liegen in einer eigenen Datenbank, damit Liste und Sicherung schnell bleiben */
 async function mediaTx(mode, fn) {
-  const d = await db();
+  const d = await mediaDb();
   return new Promise((resolve, reject) => {
     const t = d.transaction("media", mode);
     const req = fn(t.objectStore("media"));
