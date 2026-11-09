@@ -1529,12 +1529,38 @@ function renderShop() {
 let installEvent = null;
 window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvent = e; });
 
+const IS_IOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isStandalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+const IOS_STEPS = `
+            <li>Unten in Safari auf <b>Teilen</b> tippen (Quadrat mit Pfeil). Siehst du es nicht, zuerst auf die <b>drei Punkte ···</b> tippen.</li>
+            <li><b>„Zum Home-Bildschirm“</b> wählen. Steht es nicht da: nach unten wischen oder auf <b>„Mehr“</b> tippen.</li>
+            <li>Rechts oben auf <b>Hinzufügen</b> tippen.</li>
+            <li>Ab jetzt die App immer über das neue Symbol <b>„Rezepte“</b> öffnen.</li>`;
+
+/* Einladungs-Link (…/?einladung): zeigt beim Öffnen gleich, wie die App aufs Handy kommt */
+function showInvite() {
+  const android = /android/i.test(navigator.userAgent);
+  const sh = openSheet(`
+    <div class="card-head"><h2>${icon("phone", 20)} Willkommen!</h2><button class="icon-btn" data-close aria-label="Schließen">${icon("x", 22)}</button></div>
+    <p>Du bist zu <b>Meine Rezepte</b> eingeladen: dein eigenes Kochbuch, gratis, ohne Anmeldung und ohne Werbung. So kommt es aufs Handy:</p>
+    ${IS_IOS ? `<ol class="howto">${IOS_STEPS}</ol>
+      <p class="small muted">Das geht in <b>Safari</b>. Hat sich der Link in einer anderen App geöffnet: Link kopieren und in Safari einfügen. Erst nach dem Hinzufügen Rezepte speichern, denn Safari und das Symbol haben getrennte Speicher.</p>`
+    : android ? `<button class="btn" id="inviteInstall">${icon("download", 19)} App installieren</button>
+      <p class="small muted" id="inviteHint" hidden>Im Chrome-Menü (⋮ rechts oben) auf <b>„App installieren“</b> oder <b>„Zum Startbildschirm hinzufügen“</b> tippen.</p>`
+    : `<p class="muted">Öffne diesen Link am besten direkt am Handy, dann kannst du die App dort speichern.</p>`}
+    <p class="small muted">Deine Rezepte bleiben nur auf deinem Handy. Niemand sonst sieht sie.</p>
+    <button class="btn ghost" data-close>Verstanden</button>`);
+  $("#inviteInstall", sh)?.addEventListener("click", () => {
+    if (installEvent) { installEvent.prompt(); installEvent = null; } else $("#inviteHint", sh).hidden = false;
+  });
+}
+
 async function renderMore() {
   setTop();
   const all = await store.all();
   const theme = document.documentElement.dataset.theme || "auto";
-  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  const isIOS = IS_IOS;
+  const standalone = isStandalone();
   const lastBackup = local.get("lastBackup", null);
   view.innerHTML = `
     <div class="page">
@@ -1553,10 +1579,7 @@ async function renderMore() {
       ${standalone ? "" : `<section class="card">
         <div class="card-head"><h2>${icon("phone", 20)} Auf den Startbildschirm</h2></div>
         ${isIOS ? `<ol class="howto">
-            <li>Unten in Safari auf <b>Teilen</b> tippen (Quadrat mit Pfeil).</li>
-            <li><b>„Zum Home-Bildschirm“</b> wählen.</li>
-            <li>Rechts oben auf <b>Hinzufügen</b> tippen.</li>
-          </ol>`
+${IOS_STEPS}</ol>`
         : `<p class="muted">Dann öffnet sich die App wie eine richtige App – auch ohne Internet.</p>
           <button class="btn" id="install">${icon("download", 19)} App installieren</button>
           <p class="small muted" id="installHint" hidden>Im Browser-Menü (⋮ rechts oben) auf <b>„App installieren“</b> oder <b>„Zum Startbildschirm hinzufügen“</b> tippen.</p>`}
@@ -1639,6 +1662,10 @@ async function renderMore() {
   // Link, der über "Teilen" (Android) hereinkommt
   const p = new URLSearchParams(location.search);
   const shared = [p.get("url"), p.get("text"), p.get("title")].join(" ").match(/https?:\/\/\S+/);
+  if (p.has("einladung")) {
+    history.replaceState(null, "", location.pathname + location.hash);
+    if (!isStandalone()) showInvite();
+  }
   if (shared) {
     history.replaceState(null, "", location.pathname + "#/neu");
     drawTabbar();
