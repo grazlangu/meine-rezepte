@@ -1,5 +1,5 @@
 // Sorgt dafür, dass die App auch ohne Internet startet.
-const CACHE = "rezepte-v10";
+const CACHE = "rezepte-v11";
 const FILES = ["./", "index.html", "fonts.css", "style.css", "readex-pro-latin-23b22b.woff2", "readex-pro-latin-ext-7750d8.woff2", "baloo-2-latin-224589.woff2", "app.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {

@@ -824,15 +824,32 @@ function findTimers(text) {
 const timers = [];
 let timerTick = null;
 function startTimer(min, label) {
+  unlockAudio();
   timers.push({ id: uid(), end: Date.now() + min * 60000, label, total: min });
   if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
   toast(`Timer läuft: ${fmtMinutes(Math.round(min)) || Math.round(min * 60) + " Sek."}`, "ok");
   drawTimers();
   timerTick ||= setInterval(drawTimers, 1000);
 }
+/* iPhones spielen Töne nur, wenn der Ton beim Antippen schon vorbereitet wurde */
+let audioCtx = null;
+function getAudio() {
+  audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+  audioCtx.resume?.();
+  return audioCtx;
+}
+function unlockAudio() {
+  try {
+    const ctx = getAudio(), o = ctx.createOscillator(), g = ctx.createGain();
+    g.gain.value = 0; o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime + 0.02);
+  } catch {}
+}
 function beep() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudio();
+    // Damit der Ton auch bei Lautlos-Schalter zu hören ist (neuere iPhones)
+    if (navigator.audioSession) { navigator.audioSession.type = "playback"; setTimeout(() => { navigator.audioSession.type = "auto"; }, 2000); }
     [0, 0.35, 0.7, 1.05].forEach((t) => {
       const o = ctx.createOscillator(), g = ctx.createGain();
       o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
